@@ -109,7 +109,7 @@ python3 tools/scenario_coverage.py --results .
 | ViewModels and screens | Fake repositories; screens rendered from a given state | 71 |
 | App | The real activity, navigation, Hilt graph and data layer, driven through the UI | 24 |
 
-The end-to-end tests live in one file, [`EndToEndTest.kt`](app/src/sharedTest/kotlin/app/connect/android/EndToEndTest.kt), compiled into two source sets. On every run it executes on the JVM under Robolectric in about half a minute. The CI workflow also runs the same file on an emulator.
+The end-to-end tests live in one file, [`EndToEndTest.kt`](app/src/sharedTest/kotlin/app/connect/android/EndToEndTest.kt), compiled into two source sets. On every run it executes on the JVM under Robolectric in about half a minute. The CI workflow can also run the same file on an emulator, on demand.
 
 "Coverage" here means behaviours, not lines. [docs/scenarios.toml](docs/scenarios.toml) lists 30 scenarios the app must keep getting right. Tests claim them with `@Covers("CHAT-02")`. A script joins the catalogue, the claims and the JUnit results into [docs/regression-matrix.md](docs/regression-matrix.md), counting a scenario only if a test that claims it actually passed. Four scenarios are checked by hand, and the matrix says why for each: a real process kill, real Firebase delivery, a real radio toggling, and a screen-reader walkthrough.
 

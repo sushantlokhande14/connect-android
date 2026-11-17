@@ -53,6 +53,9 @@ jobs:
     name: End-to-end tests on an emulator
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # On demand (Actions tab, "Run workflow"). The same tests run on the JVM in every build above;
+    # booting an emulator adds about ten minutes, so it is not paid on every push.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
