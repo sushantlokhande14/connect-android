@@ -83,6 +83,9 @@ dependencies {
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.compiler)
 
+    // The Compose BOM reaches the app through :core:ui, but not the separate device-test APK: without
+    // it here, the Compose test library has no version to resolve.
+    androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(project(":testing"))
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
