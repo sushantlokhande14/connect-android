@@ -96,6 +96,14 @@ class FakeBackend(
     /** Makes the next refresh attempt fail, which is how a session ends for good. */
     fun revokeRefreshTokens() = synchronized(lock) { refreshTokens.clear() }
 
+    /** Creates a conversation between the account and the first person in the directory, as a match would. */
+    fun startConversation(email: String): String = synchronized(lock) {
+        val account = accountsByEmail[email] ?: error("No account $email")
+        val peer = directory.first()
+        val existing = conversations.values.firstOrNull { it.ownerId == account.userId && it.peer.id == peer.id }
+        (existing ?: ConversationRecord(id = "c_${nextId++}", ownerId = account.userId, peer = peer).also { conversations[it.id] = it }).id
+    }
+
     /** Queues a message from the other person, as if they had just written it. */
     fun peerSends(conversationId: String, body: String) = synchronized(lock) {
         val conversation = conversations[conversationId] ?: error("No conversation $conversationId")

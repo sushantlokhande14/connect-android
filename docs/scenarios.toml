@@ -1,0 +1,164 @@
+# The regression scenarios this project commits to.
+#
+# A scenario is a user-visible behaviour that must keep working, written from
+# the outside ("a failed send can be retried"), not a description of code.
+# Tests claim scenarios with @Covers("ID"). tools/scenario_coverage.py joins
+# this file with those claims and with the JUnit results, and reports which
+# scenarios have at least one passing automated test.
+#
+# A scenario with a `manual` key is checked by hand; the value says why it is
+# not automated. Those count against coverage on purpose.
+
+[[scenario]]
+id = "AUTH-01"
+area = "Authentication"
+title = "Signing in or signing up with valid details starts a session"
+
+[[scenario]]
+id = "AUTH-02"
+area = "Authentication"
+title = "Wrong credentials are refused with a clear message and no session"
+
+[[scenario]]
+id = "AUTH-03"
+area = "Authentication"
+title = "Invalid input is caught on the device, on the right field, before any request"
+
+[[scenario]]
+id = "AUTH-04"
+area = "Authentication"
+title = "A restarted process is still signed in"
+
+[[scenario]]
+id = "AUTH-05"
+area = "Authentication"
+title = "An expired access token is refreshed once and the request replayed"
+
+[[scenario]]
+id = "AUTH-06"
+area = "Authentication"
+title = "A session that ends (sign out, or rejected by the server) returns to sign-in and wipes local data"
+
+[[scenario]]
+id = "DISC-01"
+area = "Discovery"
+title = "The discovery screen loads its five requests together and shows the deck"
+
+[[scenario]]
+id = "DISC-02"
+area = "Discovery"
+title = "A failed load shows an error, and retry recovers"
+
+[[scenario]]
+id = "DISC-03"
+area = "Discovery"
+title = "A failed optional request degrades the screen instead of failing it"
+
+[[scenario]]
+id = "DISC-04"
+area = "Discovery"
+title = "Cached data is reused and identical concurrent reads share one request"
+
+[[scenario]]
+id = "DISC-05"
+area = "Discovery"
+title = "A swipe updates the deck at once, is rolled back if refused, and a mutual like is a match"
+
+[[scenario]]
+id = "DISC-06"
+area = "Discovery"
+title = "The deck pages without repeating anyone"
+
+[[scenario]]
+id = "DISC-07"
+area = "Discovery"
+title = "Dragging a card past the threshold swipes it; a short drag returns it"
+
+[[scenario]]
+id = "PROF-01"
+area = "Profile"
+title = "A profile loads, and a saved copy is shown when the server cannot be reached"
+
+[[scenario]]
+id = "PROF-02"
+area = "Profile"
+title = "Editing your own profile validates, saves, and updates every screen that shows it"
+
+[[scenario]]
+id = "CHAT-01"
+area = "Messaging"
+title = "A message can be sent and appears in the conversation"
+
+[[scenario]]
+id = "CHAT-02"
+area = "Messaging"
+title = "A failed send stays visible, can be retried, and is never stored twice"
+
+[[scenario]]
+id = "CHAT-03"
+area = "Messaging"
+title = "Conversations stay readable offline"
+
+[[scenario]]
+id = "CHAT-04"
+area = "Messaging"
+title = "A pushed message is stored, counted as unread, and not notified while its conversation is open"
+
+[[scenario]]
+id = "NAV-01"
+area = "Navigation"
+title = "Tabs and the back button move between screens as expected"
+
+[[scenario]]
+id = "NAV-02"
+area = "Navigation"
+title = "Tapping a notification opens its conversation"
+
+[[scenario]]
+id = "NAV-03"
+area = "Navigation"
+title = "The current screen survives activity recreation"
+
+[[scenario]]
+id = "NAV-04"
+area = "Navigation"
+title = "The back stack and typed drafts survive the system killing the process in the background"
+manual = "Needs a real process kill (adb shell am kill) and relaunch from recents; recreation in a test does not exercise saved-state serialisation across processes."
+
+[[scenario]]
+id = "PUSH-01"
+area = "Push"
+title = "A notification is posted with the right destination, and none is posted without permission"
+
+[[scenario]]
+id = "PUSH-02"
+area = "Push"
+title = "Firebase Cloud Messaging delivers to the prod build, in foreground, background and after a cold start"
+manual = "Needs a Firebase project and a physical or Play-services device; the prod flavor's config file is not in the repository."
+
+[[scenario]]
+id = "OFFL-01"
+area = "Offline"
+title = "Losing and regaining the radio mid-session on a real device recovers without restarting the app"
+manual = "Fault injection covers each request failing; toggling a real radio (airplane mode) mid-flow is checked by hand."
+
+[[scenario]]
+id = "A11Y-01"
+area = "Accessibility"
+title = "The main flow is usable with TalkBack and at the largest font size"
+manual = "Content descriptions are asserted in tests, but a screen-reader walkthrough is a judgement call made by a person."
+
+[[scenario]]
+id = "DIAG-01"
+area = "Diagnostics"
+title = "Every analytics event is typed, valid for the backend, and free of personal data"
+
+[[scenario]]
+id = "DIAG-02"
+area = "Diagnostics"
+title = "A crash writes a report with the breadcrumb trail before the process dies"
+
+[[scenario]]
+id = "DIAG-03"
+area = "Diagnostics"
+title = "Feature flags are validated before they are applied and change behaviour when applied"

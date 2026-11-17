@@ -59,9 +59,12 @@ subprojects {
     }
 
     tasks.withType<Test>().configureEach {
-        // Scenario ids are printed by the tests; keep stdout in the XML reports
-        // so tools/scenario_coverage.py can cross-check them.
-        testLogging { events("failed") }
+        testLogging {
+            events("failed")
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
+        }
         maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+        // A test that never returns must fail the build, not hold a CI runner until the job limit.
+        timeout.set(java.time.Duration.ofMinutes(25))
     }
 }
