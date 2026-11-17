@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+.idea/
+.kotlin/
+local.properties
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+.DS_Store
+
+# Firebase config is per-developer; the prod flavor reads it if present.
+app/google-services.json
+
+# Local tooling
+.claude/
+__pycache__/
+out/
