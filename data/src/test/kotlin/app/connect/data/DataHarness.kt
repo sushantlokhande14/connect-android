@@ -23,6 +23,7 @@ import app.connect.domain.model.Session
 import app.connect.domain.model.SwipeAction
 import app.connect.domain.model.UserId
 import app.connect.fakebackend.FakeBackend
+import app.connect.fakebackend.FakeBackendInterceptor
 import app.connect.fakebackend.FakeRequest
 import app.connect.fakebackend.TransportFault
 import app.connect.testing.FakeClock
@@ -80,15 +81,26 @@ class DataHarness(
     val backend: FakeBackend = FakeBackend(clock = { clock.nowMillis() }),
     timeouts: NetworkFactory.Timeouts = NetworkFactory.Timeouts(connectMillis = 2_000, readMillis = 1_500, callMillis = 5_000),
     sessionFile: File? = null,
+    /**
+     * Answer requests inside the HTTP client instead of over a socket. The tests use the socket, to
+     * exercise connections and timeouts. The benchmark does not: a loopback socket adds latency of its
+     * own (the mock server writes headers and body as two segments, which costs a delayed ACK of about
+     * 40 ms per response) and that would be counted once per request for a sequential loader.
+     */
+    inProcess: Boolean = false,
 ) : Closeable {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val nextMessageId = AtomicInteger(1)
 
-    val server = MockWebServer().apply {
-        dispatcher = FakeBackendDispatcher(backend)
-        start()
+    private val server: MockWebServer? = if (inProcess) {
+        null
+    } else {
+        MockWebServer().apply {
+            dispatcher = FakeBackendDispatcher(backend)
+            start()
+        }
     }
-    val baseUrl: String = server.url("/").toString()
+    val baseUrl: String = server?.url("/")?.toString() ?: "https://benchmark.invalid/"
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -104,7 +116,10 @@ class DataHarness(
     val analytics = RecordingAnalytics()
     val caller = ApiCaller(json, breadcrumbs)
 
-    private val plainClient = NetworkFactory.plainClient(timeouts = timeouts)
+    private val plainClient = NetworkFactory.plainClient(
+        transport = if (inProcess) setOf(FakeBackendInterceptor(backend)) else emptySet(),
+        timeouts = timeouts,
+    )
     val authApi: AuthApi = NetworkFactory.retrofit(baseUrl, plainClient, json).create(AuthApi::class.java)
     private val authInterceptor = AuthInterceptor(sessions, Provider { authApi }, breadcrumbs)
     val api: ConnectApi = NetworkFactory
@@ -143,7 +158,7 @@ class DataHarness(
 
     /** Ends this "process" but keeps the session file, so a second harness can restore from it. */
     override fun close() {
-        server.shutdown()
+        server?.shutdown()
         database.close()
         scope.cancel()
         dataStoreScope.cancel()

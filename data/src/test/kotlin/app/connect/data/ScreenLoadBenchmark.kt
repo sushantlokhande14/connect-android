@@ -20,26 +20,34 @@ import java.io.File
 import kotlin.system.measureNanoTime
 
 /**
- * Measures how long the discovery screen's data takes to load, end to end
- * through the real client stack: Retrofit, OkHttp over a localhost socket,
- * kotlinx.serialization, Room. Only the server is simulated, with the latency
- * model in NetworkProfile.
+ * Measures how long the discovery screen's data takes to load through the
+ * real client stack: Retrofit, OkHttp's interceptor chain (auth included),
+ * kotlinx.serialization and Room. The server is simulated in process, with
+ * the latency model in NetworkProfile.
  *
- * It answers one question: for the same screen and the same simulated
- * network, how much of the load time does each change remove? The changes are
- * applied one at a time so each one's share is visible:
+ * It answers one question: on the same simulated network, how much of the
+ * load time does each change remove? The changes are applied one at a time:
  *
- *   baseline          one request at a time, nothing cached, and a session
- *                     probe before the load (the naive version of the screen)
- *   no-probe          baseline without the session probe, which is redundant
- *                     because an expired token is already handled on 401
- *   concurrent        the production loader on a first visit (empty cache)
- *   concurrent+cache  the production loader on a return visit: profile and
- *                     filters come from the cache, the rest is fetched
+ *   baseline      one request at a time, nothing cached, and a session probe
+ *                 before the load (the naive version of the screen)
+ *   no probe      the baseline without the probe, which is redundant because
+ *                 an expired token is already handled when a request gets 401
+ *   concurrent    the production loader on a first visit, nothing cached
+ *   revisit       the production loader coming back after more than a minute:
+ *                 profile and filters come from the cache, the deck is refetched
+ *   quick revisit the production loader coming back within a minute: the deck
+ *                 is cached too
+ *
+ * Fairness. Every arm of a run faces the same network: the latency model is
+ * reseeded before each arm, and each endpoint draws from its own stream, so
+ * "the deck request" costs the same in every arm of that run. Runs differ
+ * from each other, which is what makes the percentiles mean something.
+ *
+ * What this is not: a measurement of a real network or a real device. The
+ * result is exactly as trustworthy as the latency model, which is printed
+ * with it.
  *
  * Run with:  ./gradlew :data:testDebugUnitTest -Pbenchmark
- * It is excluded from the normal test run because it takes minutes and
- * produces a report rather than a verdict.
  */
 @RunWith(RobolectricTestRunner::class)
 class ScreenLoadBenchmark {
@@ -47,16 +55,20 @@ class ScreenLoadBenchmark {
     private val warmups = 3
     private val outDir = File(System.getProperty("benchmark.out") ?: "build/benchmark")
 
-    private class Arm(val name: String, val samplesMillis: List<Double>) {
-        val sorted = samplesMillis.sorted()
+    private class Arm(val name: String) {
+        val samplesMillis = ArrayList<Double>()
+        var requests = 0
+
+        private val sorted get() = samplesMillis.sorted()
         val mean get() = samplesMillis.average()
         val median get() = percentile(0.5)
         val p90 get() = percentile(0.9)
 
-        fun percentile(p: Double): Double {
-            val rank = p * (sorted.size - 1)
-            val low = sorted[rank.toInt()]
-            val high = sorted[(rank.toInt() + 1).coerceAtMost(sorted.size - 1)]
+        private fun percentile(p: Double): Double {
+            val values = sorted
+            val rank = p * (values.size - 1)
+            val low = values[rank.toInt()]
+            val high = values[(rank.toInt() + 1).coerceAtMost(values.size - 1)]
             return low + (high - low) * (rank - rank.toInt())
         }
     }
@@ -86,52 +98,47 @@ class ScreenLoadBenchmark {
         clock = harness.clock,
     )
 
-    private fun timeMillis(block: suspend () -> Boolean): Double {
-        var ok = false
-        val nanos = measureNanoTime { ok = runBlocking { block() } }
-        check(ok) { "a benchmarked load failed; the sample would be meaningless" }
-        return nanos / 1_000_000.0
-    }
-
     private fun measure(profile: NetworkProfile): List<Arm> {
-        val baseline = ArrayList<Double>()
-        val noProbe = ArrayList<Double>()
-        val concurrent = ArrayList<Double>()
-        val cached = ArrayList<Double>()
+        val arms = listOf("baseline", "no probe", "concurrent", "revisit", "quick revisit").map(::Arm)
 
-        // Each run uses a new harness, so every arm starts from an empty cache and a new connection pool.
-        // The four arms are measured back to back inside a run, which spreads any drift in the machine's
-        // load evenly across them.
         repeat(warmups + runs) { run ->
             val record = run >= warmups
-            DataHarness(timeouts = NetworkFactory.Timeouts(readMillis = 30_000, callMillis = 60_000)).use { harness ->
+            // A new harness per run: every run starts with empty caches.
+            DataHarness(
+                inProcess = true,
+                timeouts = NetworkFactory.Timeouts(readMillis = 60_000, callMillis = 120_000),
+            ).use { harness ->
                 runBlocking { harness.signInDemo() }
                 harness.backend.network = profile
                 val naive = SequentialUncachedLoader(harness.api, harness.caller)
                 val production = productionLoader(harness)
+                val seed = 7_919L * (run + 1)
 
-                val a = timeMillis { naive.load(probeSession = true) }
-                val b = timeMillis { naive.load(probeSession = false) }
-                // First visit: nothing cached yet.
-                val c = timeMillis { production(Freshness.CACHE_FIRST) is Outcome.Success }
-                // Return visit after the deck's one-minute lifetime, inside the profile's and filters' lifetimes.
-                harness.clock.advance(CacheTtl.FIRST_DECK_PAGE_MILLIS + 1)
-                val d = timeMillis { production(Freshness.CACHE_FIRST) is Outcome.Success }
-
-                if (record) {
-                    baseline += a
-                    noProbe += b
-                    concurrent += c
-                    cached += d
+                fun time(arm: Arm, load: suspend () -> Boolean) {
+                    // Same seed before every arm of this run: each arm sees the same network.
+                    harness.backend.reseedLatency(seed)
+                    harness.backend.clearRequestLog()
+                    var ok = false
+                    val nanos = measureNanoTime { ok = runBlocking { load() } }
+                    check(ok) { "a benchmarked load failed; the sample would be meaningless" }
+                    if (record) {
+                        arm.samplesMillis += nanos / 1_000_000.0
+                        arm.requests = harness.backend.requests().size
+                    }
                 }
+
+                time(arms[0]) { naive.load(probeSession = true) }
+                time(arms[1]) { naive.load(probeSession = false) }
+                // The naive loader does not touch the repositories, so their caches are still empty here.
+                time(arms[2]) { production(Freshness.CACHE_FIRST) is Outcome.Success }
+                // Past the deck's one-minute lifetime, inside the profile's and the filters' lifetimes.
+                harness.clock.advance(CacheTtl.FIRST_DECK_PAGE_MILLIS + 1)
+                time(arms[3]) { production(Freshness.CACHE_FIRST) is Outcome.Success }
+                // Straight back again: now the deck fetched a moment ago is still fresh.
+                time(arms[4]) { production(Freshness.CACHE_FIRST) is Outcome.Success }
             }
         }
-        return listOf(
-            Arm("baseline", baseline),
-            Arm("no-probe", noProbe),
-            Arm("concurrent", concurrent),
-            Arm("concurrent+cache", cached),
-        )
+        return arms
     }
 
     @Test
@@ -139,23 +146,42 @@ class ScreenLoadBenchmark {
         outDir.mkdirs()
         val results = NetworkProfile.ALL.associateWith(::measure)
 
+        val routes = listOf(
+            "GET /v1/session", "GET /v1/me", "GET /v1/me/preferences", "GET /v1/discovery",
+            "GET /v1/me/quota", "GET /v1/conversations/unread-count",
+        )
         val markdown = StringBuilder()
-        val json = StringBuilder("{\n  \"runsPerArm\": $runs,\n  \"profiles\": [\n")
-        markdown.appendLine("| Network | Loader | Median ms | Mean ms | p90 ms | vs baseline (median) |")
-        markdown.appendLine("|---|---|---:|---:|---:|---:|")
+        markdown.appendLine("Simulated latency per endpoint: log-normal, sigma 0.25, with these medians in ms.")
+        markdown.appendLine()
+        markdown.appendLine("| Network | " + routes.joinToString(" | ") { it.removePrefix("GET /v1/") } + " |")
+        markdown.appendLine("|---|" + routes.joinToString("") { "---:|" })
+        NetworkProfile.ALL.forEach { profile ->
+            markdown.appendLine("| ${profile.name} | " + routes.joinToString(" | ") { "%.0f".format(profile.latencyFor(it).medianMillis) } + " |")
+        }
+        markdown.appendLine()
+        markdown.appendLine("$runs runs per arm after $warmups warm-up runs. Every arm of a run sees the same latency draws.")
+        markdown.appendLine()
+        markdown.appendLine("| Network | Loader | Requests | Median ms | Mean ms | p90 ms | vs baseline | vs no probe |")
+        markdown.appendLine("|---|---|---:|---:|---:|---:|---:|---:|")
+
+        val json = StringBuilder("{\n  \"runsPerArm\": $runs,\n  \"sigma\": 0.25,\n  \"profiles\": [\n")
         results.entries.forEachIndexed { index, (profile, arms) ->
-            val base = arms.first().median
-            arms.forEach { arm ->
-                val change = if (arm === arms.first()) "" else "%.1f%%".format(-(base - arm.median) / base * 100)
+            val baseline = arms[0].median
+            val noProbe = arms[1].median
+            arms.forEachIndexed { position, arm ->
+                fun change(reference: Double) = "%+.1f%%".format((arm.median - reference) / reference * 100)
                 markdown.appendLine(
-                    "| ${profile.name} | ${arm.name} | %.0f | %.0f | %.0f | %s |"
-                        .format(arm.median, arm.mean, arm.p90, change),
+                    "| ${profile.name} | ${arm.name} | ${arm.requests} | %.0f | %.0f | %.0f | %s | %s |".format(
+                        arm.median, arm.mean, arm.p90,
+                        if (position == 0) "" else change(baseline),
+                        if (position <= 1) "" else change(noProbe),
+                    ),
                 )
             }
             json.append("    {\"network\": \"${profile.name}\", \"arms\": [")
             json.append(
                 arms.joinToString(", ") { arm ->
-                    "{\"name\": \"${arm.name}\", \"medianMs\": %.1f, \"meanMs\": %.1f, \"p90Ms\": %.1f, \"samplesMs\": [%s]}"
+                    "{\"name\": \"${arm.name}\", \"requests\": ${arm.requests}, \"medianMs\": %.1f, \"meanMs\": %.1f, \"p90Ms\": %.1f, \"samplesMs\": [%s]}"
                         .format(arm.median, arm.mean, arm.p90, arm.samplesMillis.joinToString(", ") { "%.1f".format(it) })
                 },
             )

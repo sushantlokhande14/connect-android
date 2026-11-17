@@ -64,6 +64,8 @@ class FakeBackend(
     private val lock = Any()
     private val json = Json { ignoreUnknownKeys = true }
     private val random = Random(seed)
+    private var latencySeed = seed
+    private val latencyStreams = HashMap<String, Random>()
     private val directory = SeedData.profiles(seed)
     private val accountsByEmail = HashMap<String, Account>()
     private val accountsById = HashMap<String, Account>()
@@ -79,6 +81,16 @@ class FakeBackend(
     }
 
     // ---------------------------------------------------------------- test hooks
+
+    /**
+     * Restarts the latency model from a seed. Each route draws from its own stream, so the n-th request
+     * to a route gets the same latency however many other requests were made in between. That is what
+     * lets a benchmark put two different loaders in front of the same simulated network.
+     */
+    fun reseedLatency(seed: Long) = synchronized(lock) {
+        latencySeed = seed
+        latencyStreams.clear()
+    }
 
     /** Routes requested so far, in arrival order, e.g. "GET /v1/me". */
     fun requests(): List<String> = synchronized(lock) { log.toList() }
@@ -129,7 +141,7 @@ class FakeBackend(
         synchronized(lock) {
             log += route
             fault = faults.take(route)
-            delay = network.sample(route, random)
+            delay = network.sample(route, latencyStreams.getOrPut(route) { Random(latencySeed * 31 + route.hashCode()) })
         }
         return when (fault) {
             is Fault.Timeout -> FakeResponse(status = 0, delayMillis = delay, transport = TransportFault.TIMEOUT)
