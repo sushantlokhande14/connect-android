@@ -6,8 +6,9 @@ import android.net.Uri
 import android.os.Build
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasStateDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -191,7 +192,11 @@ class EndToEndTest {
 
         waitFor { notifier.messages.size == 1 }
         assertThat(notifier.messages.single().body).isEqualTo("are you there?")
-        waitFor { compose.onAllNodesWithContentDescription("Chats, 1 unread").fetchSemanticsNodes().isNotEmpty() }
+        // The count is asserted the way a screen reader gets it: as the tab's state.
+        waitFor {
+            compose.onAllNodes(hasTestTag(TestTags.NAV_CHATS) and hasStateDescription("1 unread"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
 
         compose.onNodeWithTag(TestTags.NAV_CHATS).performClick()
         waitFor { tagShown(TestTags.CONVERSATION_ROW) }

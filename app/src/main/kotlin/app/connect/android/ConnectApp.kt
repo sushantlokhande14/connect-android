@@ -34,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -210,18 +212,23 @@ private val tabs = listOf(
 private fun BottomBar(currentRoute: String?, unreadCount: Int, onSelect: (String) -> Unit) {
     NavigationBar {
         tabs.forEach { tab ->
+            val showBadge = tab.route == Routes.CHATS && unreadCount > 0
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = { onSelect(tab.route) },
                 label = { Text(tab.label) },
-                modifier = Modifier.testTag(tab.tag),
+                // A navigation item with a label hides its icon from accessibility services, and the
+                // badge sits on the icon. Without this, a screen reader never announces unread messages.
+                modifier = Modifier.testTag(tab.tag).semantics {
+                    if (showBadge) stateDescription = "$unreadCount unread"
+                },
                 icon = {
-                    if (tab.route == Routes.CHATS && unreadCount > 0) {
+                    if (showBadge) {
                         BadgedBox(badge = { Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) } }) {
-                            Icon(tab.icon, contentDescription = "${tab.label}, $unreadCount unread")
+                            Icon(tab.icon, contentDescription = null)
                         }
                     } else {
-                        Icon(tab.icon, contentDescription = tab.label)
+                        Icon(tab.icon, contentDescription = null)
                     }
                 },
             )

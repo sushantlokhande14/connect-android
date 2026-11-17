@@ -60,11 +60,13 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         testLogging {
-            events("failed")
+            // -PverboseTests prints one line per test, which is how to see where a slow run is.
+            if (providers.gradleProperty("verboseTests").isPresent) events("passed", "failed", "skipped") else events("failed")
             exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
         }
         maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
         // A test that never returns must fail the build, not hold a CI runner until the job limit.
-        timeout.set(java.time.Duration.ofMinutes(25))
+        val minutes = providers.gradleProperty("testTimeoutMinutes").map(String::toLong).getOrElse(25L)
+        timeout.set(java.time.Duration.ofMinutes(minutes))
     }
 }

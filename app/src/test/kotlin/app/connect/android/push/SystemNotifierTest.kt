@@ -44,7 +44,7 @@ class SystemNotifierTest {
         assertThat(shadowOf(posted).contentTitle.toString()).isEqualTo("Maya")
         assertThat(shadowOf(posted).contentText.toString()).isEqualTo("hi!")
         assertThat(posted.channelId).isEqualTo("messages")
-        assertThat(shadowOf(manager).getNotificationChannel("messages")).isNotNull()
+        assertThat(manager.getNotificationChannel("messages")).isNotNull()
     }
 
     @Test
